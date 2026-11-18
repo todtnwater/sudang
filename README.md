@@ -1,3 +1,8 @@
+
+<img src="sudaeng_sleep.png" width="250">
+
+<img src="sudaeng_menu.png" width="250">
+
 Windows 만 가능합니다.
 exe 파일 실행하면 바로 실행 되지만
 혹시 실행이 되지 않는다면 파이썬 3.14로 깔려있는지 확인해주세요
