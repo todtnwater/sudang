@@ -28,6 +28,10 @@ HUNGRY_AFTER_TICKS = int(10 * 60 * 1000 / TICK_MS)
 FOOD_LIFETIME_TICKS = int(60 * 1000 / TICK_MS)
 SHELL_SPAWN_FRAME = 12
 
+IS_WINDOWS = sys.platform == "win32"
+IS_MAC = sys.platform == "darwin"
+UI_FONT = "Apple SD Gothic Neo" if IS_MAC else "Malgun Gothic"
+
 ANIMS = {
     "idle_front": (0, 15),
     "idle_back": (1, 15),
@@ -76,11 +80,113 @@ def screen_geo_at(x, y):
     return screen.availableGeometry()
 
 
-class WindowSurfaces:
+def prepare_overlay(widget):
+    widget.setAttribute(Qt.WA_TranslucentBackground)
+    widget.setAttribute(Qt.WA_ShowWithoutActivating)
+    if IS_MAC:
+        widget.setAttribute(Qt.WA_MacAlwaysShowToolWindow)
+
+
+class SurfaceBase:
     def __init__(self):
-        self.enabled = sys.platform == "win32"
+        self.enabled = False
         self.cache = []
         self.cache_time = 0.0
+
+    def scan(self):
+        return []
+
+    def rect_of(self, hwnd):
+        return None
+
+    def occluded_in(self, rects, index, x, y):
+        for j in range(index):
+            _, l, t, r, b = rects[j]
+            if l <= x <= r and t <= y + 3 <= b:
+                return True
+        return False
+
+    def is_occluded(self, hwnd, x, y):
+        rects = self.scan()
+        for i, item in enumerate(rects):
+            if item[0] == hwnd:
+                return self.occluded_in(rects, i, x, y)
+        return True
+
+    def find_landing(self, x, prev_y, new_y, screen_top):
+        best = None
+        rects = self.scan()
+        for i, (hwnd, l, t, r, b) in enumerate(rects):
+            if t <= screen_top + 2:
+                continue
+            if l <= x <= r and prev_y <= t <= new_y:
+                if self.occluded_in(rects, i, x, t):
+                    continue
+                if best is None or t < best[1]:
+                    best = (hwnd, t, l)
+        return best
+
+
+class MacWindowSurfaces(SurfaceBase):
+    def __init__(self):
+        super().__init__()
+        self.pid = os.getpid()
+        try:
+            import Quartz
+        except Exception:
+            return
+        self.Q = Quartz
+        self.enabled = True
+
+    def scan(self):
+        if not self.enabled:
+            return []
+        now = time.monotonic()
+        if now - self.cache_time < 0.05:
+            return self.cache
+        Q = self.Q
+        found = []
+        try:
+            info = Q.CGWindowListCopyWindowInfo(
+                Q.kCGWindowListOptionOnScreenOnly | Q.kCGWindowListExcludeDesktopElements,
+                Q.kCGNullWindowID,
+            )
+        except Exception:
+            info = None
+        for w in info or []:
+            if int(w.get(Q.kCGWindowLayer, 1)) != 0:
+                continue
+            if int(w.get(Q.kCGWindowOwnerPID, -1)) == self.pid:
+                continue
+            if float(w.get(Q.kCGWindowAlpha, 1.0)) <= 0.01:
+                continue
+            bounds = w.get(Q.kCGWindowBounds)
+            if not bounds:
+                continue
+            l = float(bounds["X"])
+            t = float(bounds["Y"])
+            r = l + float(bounds["Width"])
+            b = t + float(bounds["Height"])
+            if r - l < 120 or b - t < 60:
+                continue
+            found.append((int(w.get(Q.kCGWindowNumber, 0)), l, t, r, b))
+        self.cache = found
+        self.cache_time = now
+        return found
+
+    def rect_of(self, hwnd):
+        if not self.enabled or hwnd is None:
+            return None
+        for item in self.scan():
+            if item[0] == hwnd:
+                return item[1], item[2], item[3], item[4]
+        return None
+
+
+class WindowSurfaces(SurfaceBase):
+    def __init__(self):
+        super().__init__()
+        self.enabled = IS_WINDOWS
         if not self.enabled:
             return
         import ctypes
@@ -190,32 +296,13 @@ class WindowSurfaces:
             return None
         return self.native_rect_to_logical(*raw)
 
-    def occluded_in(self, rects, index, x, y):
-        for j in range(index):
-            _, l, t, r, b = rects[j]
-            if l <= x <= r and t <= y + 3 <= b:
-                return True
-        return False
 
-    def is_occluded(self, hwnd, x, y):
-        rects = self.scan()
-        for i, item in enumerate(rects):
-            if item[0] == hwnd:
-                return self.occluded_in(rects, i, x, y)
-        return True
-
-    def find_landing(self, x, prev_y, new_y, screen_top):
-        best = None
-        rects = self.scan()
-        for i, (hwnd, l, t, r, b) in enumerate(rects):
-            if t <= screen_top + 2:
-                continue
-            if l <= x <= r and prev_y <= t <= new_y:
-                if self.occluded_in(rects, i, x, t):
-                    continue
-                if best is None or t < best[1]:
-                    best = (hwnd, t, l)
-        return best
+def create_window_surfaces():
+    if IS_WINDOWS:
+        return WindowSurfaces()
+    if IS_MAC:
+        return MacWindowSurfaces()
+    return SurfaceBase()
 
 
 WIN = None
@@ -274,8 +361,7 @@ class FxWindow(QWidget):
             | Qt.WindowTransparentForInput
             | Qt.WindowDoesNotAcceptFocus,
         )
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        prepare_overlay(self)
         self.setFixedSize(int(w), int(h))
         self.alive = True
         self.timer = QTimer(self)
@@ -387,8 +473,11 @@ class ZzFx(FxWindow):
 
 class BubbleFx(FxWindow):
     def __init__(self, text, scale, ticks):
-        font = QFont("Malgun Gothic")
-        font.setPointSize(9 + scale)
+        font = QFont(UI_FONT)
+        if IS_MAC:
+            font.setPixelSize(round((9 + scale) * 4 / 3))
+        else:
+            font.setPointSize(9 + scale)
         font.setBold(True)
         fm = QFontMetrics(font)
         pad = 8
@@ -574,8 +663,7 @@ class SudaengPet(QWidget):
             | Qt.WindowStaysOnTopHint
             | Qt.Tool,
         )
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        prepare_overlay(self)
         self.setMouseTracking(True)
         self.setWindowTitle("수댕이")
 
@@ -1424,7 +1512,7 @@ def main():
     global WIN
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
-    WIN = WindowSurfaces()
+    WIN = create_window_surfaces()
     sheet = QPixmap(resource_path(SHEET_NAME))
     if sheet.isNull():
         raise SystemExit(SHEET_NAME + " 파일을 찾을 수 없습니다. 스크립트와 같은 폴더에 두세요.")
