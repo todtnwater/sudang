@@ -4,21 +4,22 @@
 | :---: | :---: |
 | <img src="ss2.png" width="250"> | <img src="ss1.png" width="250"> |
 
-## Windows
+## 윈도우용
 
 exe 파일 실행하면 바로 실행 되지만
 혹시 실행이 되지 않는다면 파이썬 3.14로 깔려있는지 확인해주세요
 
-## Mac (Apple Silicon: M1 이상)
+## 맥용 (Apple Silicon: M1 이상)
 
-1. [Releases](https://github.com/todtnwater/sudang/releases)에서 `sudaeng_pet_mac.zip`을 받아 압축을 풉니다.
-2. `sudaeng_pet.app`을 응용 프로그램 폴더로 옮깁니다.
-3. 처음 실행하면 "확인되지 않은 개발자" 경고가 뜹니다. 시스템 설정 → 개인정보 보호 및 보안 → 아래쪽의 **그래도 열기**를 누르세요.
-   터미널을 쓸 수 있다면 아래 명령으로 한 번에 풀 수 있습니다.
+1. **터미널**을 엽니다. (`command + space` → "터미널" 검색)
+2. 아래 한 줄을 붙여넣고 `Enter`를 누르면 설치와 실행까지 끝납니다.
    ```bash
-   xattr -cr /Applications/sudaeng_pet.app
+   curl -fsSL https://raw.githubusercontent.com/todtnwater/sudang/main/install_mac.sh | bash
    ```
-4. Dock에는 아이콘이 나오지 않습니다. 종료는 수댕이를 우클릭 → **모두 종료**로 합니다.
+3. 다음부터는 응용 프로그램 폴더의 `sudaeng_pet`을 더블클릭하면 됩니다.
+4. Dock에는 아이콘이 나오지 않습니다. 종료는 수댕이를 우클릭(두 손가락 클릭) → **모두 종료**로 합니다.
+
+새 버전이 나오면 2번 명령어를 다시 실행하면 업데이트됩니다.
 
 Intel 맥은 지원하지 않습니다.
 
